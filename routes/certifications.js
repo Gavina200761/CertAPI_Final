@@ -3,16 +3,16 @@ const { Certification } = require("../database/models");
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     const certifications = await Certification.findAll();
     return res.status(200).json(certifications);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req, res, next) => {
   try {
     const certification = await Certification.findByPk(req.params.id);
 
@@ -22,20 +22,20 @@ router.get("/:id", async (req, res) => {
 
     return res.status(200).json(certification);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
     const certification = await Certification.create(req.body);
     return res.status(201).json(certification);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", async (req, res, next) => {
   try {
     const certification = await Certification.findByPk(req.params.id);
 
@@ -46,11 +46,11 @@ router.put("/:id", async (req, res) => {
     await certification.update(req.body);
     return res.status(200).json(certification);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", async (req, res, next) => {
   try {
     const certification = await Certification.findByPk(req.params.id);
 
@@ -61,7 +61,7 @@ router.delete("/:id", async (req, res) => {
     await certification.destroy();
     return res.status(204).send();
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 

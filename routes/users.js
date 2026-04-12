@@ -3,16 +3,16 @@ const { User } = require("../database/models");
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     const users = await User.findAll();
     return res.status(200).json(users);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id);
 
@@ -22,20 +22,20 @@ router.get("/:id", async (req, res) => {
 
     return res.status(200).json(user);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
     const createdUser = await User.create(req.body);
     return res.status(201).json(createdUser);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id);
 
@@ -46,11 +46,11 @@ router.put("/:id", async (req, res) => {
     await user.update(req.body);
     return res.status(200).json(user);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id);
 
@@ -61,7 +61,7 @@ router.delete("/:id", async (req, res) => {
     await user.destroy();
     return res.status(204).send();
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 

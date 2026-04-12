@@ -3,16 +3,16 @@ const { LearningResource } = require("../database/models");
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     const resources = await LearningResource.findAll();
     return res.status(200).json(resources);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req, res, next) => {
   try {
     const resource = await LearningResource.findByPk(req.params.id);
 
@@ -22,20 +22,20 @@ router.get("/:id", async (req, res) => {
 
     return res.status(200).json(resource);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
     const resource = await LearningResource.create(req.body);
     return res.status(201).json(resource);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", async (req, res, next) => {
   try {
     const resource = await LearningResource.findByPk(req.params.id);
 
@@ -46,11 +46,11 @@ router.put("/:id", async (req, res) => {
     await resource.update(req.body);
     return res.status(200).json(resource);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", async (req, res, next) => {
   try {
     const resource = await LearningResource.findByPk(req.params.id);
 
@@ -61,7 +61,7 @@ router.delete("/:id", async (req, res) => {
     await resource.destroy();
     return res.status(204).send();
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 

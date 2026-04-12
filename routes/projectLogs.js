@@ -3,16 +3,16 @@ const { ProjectLog } = require("../database/models");
 
 const router = express.Router();
 
-router.get("/", async (req, res) => {
+router.get("/", async (req, res, next) => {
   try {
     const projectLogs = await ProjectLog.findAll();
     return res.status(200).json(projectLogs);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (req, res, next) => {
   try {
     const projectLog = await ProjectLog.findByPk(req.params.id);
 
@@ -22,20 +22,20 @@ router.get("/:id", async (req, res) => {
 
     return res.status(200).json(projectLog);
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", async (req, res, next) => {
   try {
     const projectLog = await ProjectLog.create(req.body);
     return res.status(201).json(projectLog);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", async (req, res, next) => {
   try {
     const projectLog = await ProjectLog.findByPk(req.params.id);
 
@@ -46,11 +46,11 @@ router.put("/:id", async (req, res) => {
     await projectLog.update(req.body);
     return res.status(200).json(projectLog);
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    return next(error);
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", async (req, res, next) => {
   try {
     const projectLog = await ProjectLog.findByPk(req.params.id);
 
@@ -61,7 +61,7 @@ router.delete("/:id", async (req, res) => {
     await projectLog.destroy();
     return res.status(204).send();
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return next(error);
   }
 });
 
