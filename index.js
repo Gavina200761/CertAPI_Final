@@ -38,7 +38,8 @@ async function startServer() {
       console.log(`Server listening on port ${port}`);
     });
   } catch (error) {
-    console.error("Unable to connect to database:", error.message);
+    console.error("Database connection error: unable to start API.");
+    console.error(`Details: ${error.message}`);
     process.exit(1);
   }
 }

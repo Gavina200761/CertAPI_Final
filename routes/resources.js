@@ -1,7 +1,10 @@
 const express = require("express");
 const { LearningResource } = require("../database/models");
+const validateIdParam = require("../middleware/validateIdParam");
 
 const router = express.Router();
+
+router.use("/:id", validateIdParam);
 
 router.get("/", async (req, res, next) => {
   try {
