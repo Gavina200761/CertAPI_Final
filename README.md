@@ -1,3 +1,405 @@
-# Cert API Final
+# CertAPI - MVP Certification Tracking API
 
-MVP REST API for personal learning and certification tracking.
+A RESTful Node.js backend API for managing professional certifications, learning resources, and project logs. Built for educational institutions to track student certification progress with role-based access control.
+
+## Tech Stack
+
+- **Runtime:** Node.js
+- **Framework:** Express.js 5.2.1
+- **Database:** SQLite3 with Sequelize ORM
+- **Testing:** Jest + Supertest
+- **Authentication:** JWT-ready (schema prepared)
+- **Middleware:** Custom request logging, JSON validation, content-type checking, error handling
+
+## Project Structure
+
+```
+CertAPI_Final/
+├── database/
+│   ├── models/
+│   │   ├── index.js              # Model initialization & relationships
+│   │   ├── user.js                # User model
+│   │   ├── certification.js        # Certification model
+│   │   ├── learningResource.js     # Learning resource model
+│   │   └── projectLog.js           # Project log model
+│   ├── sequelize.js               # Database connection config
+│   ├── setup.js                   # Database schema initialization
+│   ├── seed.js                    # Sample data creation
+│   ├── certapi.sqlite             # Production database
+│   └── certapi.test.sqlite        # Test database
+├── middleware/
+│   ├── jsonParser.js              # JSON request parsing
+│   ├── requestLogger.js           # HTTP request logging
+│   ├── requireJsonContentType.js  # Content-type validation
+│   ├── validateIdParam.js         # ID parameter type checking
+│   └── errorHandler.js            # Centralized error handling
+├── routes/
+│   ├── users.js                   # User CRUD endpoints
+│   ├── certifications.js          # Certification CRUD endpoints
+│   ├── resources.js               # Learning resource CRUD endpoints
+│   └── projectLogs.js             # Project log CRUD endpoints
+├── tests/
+│   └── api.test.js                # Jest integration tests
+├── index.js                       # Express app entry point
+├── package.json                   # Dependencies & scripts
+└── README.md                      # This file
+```
+
+## Installation & Setup
+
+### Prerequisites
+- Node.js (v14 or higher)
+- npm
+
+### Steps
+
+1. **Clone/Navigate to project:**
+   ```bash
+   cd "CertAPI_Final"
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Initialize database schema:**
+   ```bash
+   npm run db:setup
+   ```
+
+4. **Populate with sample data:**
+   ```bash
+   npm run db:seed
+   ```
+   This creates 4 sample users (student/instructor/admin roles), 4 certifications, 6 learning resources, and 6 project logs.
+
+5. **Start the server:**
+   ```bash
+   npm start
+   ```
+   Server listens on `http://localhost:3000`
+
+## Running Tests
+
+Execute the complete test suite:
+```bash
+npm test
+```
+
+Tests use an isolated in-memory SQLite database to ensure clean test runs without file system interference.
+
+## Data Model
+
+### Users
+- **Role Types:** `student`, `instructor`, `admin`
+- **Fields:** ID, name, email (unique), passwordHash, role, primaryGoal, createdAt, updatedAt
+- **Relationships:** One-to-Many with Certifications and ProjectLogs
+
+### Certifications
+- **Status:** `planned`, `in_progress`, `completed`, `paused`
+- **Difficulty:** `beginner`, `intermediate`, `advanced`
+- **Fields:** ID, userId (FK), title, provider, description, difficultyLevel, status, createdAt, updatedAt
+- **Relationships:** Belongs-to User, One-to-Many with LearningResources and ProjectLogs
+
+### Learning Resources
+- **Resource Types:** `course`, `practice_exam`, `documentation`, `video_tutorial`, `textbook`, `study_group`
+- **Fields:** ID, certificationId (FK), type, title, url, estimatedHours, createdAt, updatedAt
+- **Relationships:** Belongs-to Certification
+
+### Project Logs
+- **Status:** `pending`, `in_progress`, `completed`, `failed`
+- **Fields:** ID, userId (FK), certificationId (FK), logDate, description, hoursSpent, status, createdAt, updatedAt
+- **Relationships:** Belongs-to User and Certification
+
+## API Endpoints
+
+All endpoints return JSON responses. The API uses standard HTTP status codes:
+- **200** OK - Successful GET operation
+- **201** Created - Successful POST operation
+- **204** No Content - Successful DELETE operation
+- **400** Bad Request - Invalid input or malformed JSON
+- **404** Not Found - Resource does not exist
+- **500** Internal Server Error - Server error (with error details)
+
+### Users Resource
+
+**GET /api/users**
+- Returns all users
+- Response: Array of user objects (4 sample users included)
+- Status: 200
+
+**GET /api/users/:id**
+- Returns single user by ID
+- Parameters: `id` (positive integer)
+- Response: User object with all fields
+- Status: 200 (success) | 400 (invalid ID) | 404 (not found)
+
+**POST /api/users**
+- Create new user
+- Request body (JSON):
+  ```json
+  {
+    "name": "John Doe",
+    "email": "john@example.com",
+    "passwordHash": "hashed_password_here",
+    "role": "student",
+    "primaryGoal": "Optional goal description"
+  }
+  ```
+- Response: Created user object with ID
+- Status: 201 (created) | 400 (validation error, missing fields, duplicate email)
+
+**PUT /api/users/:id**
+- Update user by ID
+- Parameters: `id` (positive integer)
+- Request body: Any user fields to update
+- Response: Updated user object
+- Status: 200 | 400 (invalid ID or validation error) | 404 (not found)
+
+**DELETE /api/users/:id**
+- Delete user by ID
+- Parameters: `id` (positive integer)
+- Response: Empty (204 No Content)
+- Status: 204 | 400 (invalid ID) | 404 (not found)
+
+### Certifications Resource
+
+**GET /api/certifications**
+- Returns all certifications with user associations
+- Response: Array of certification objects (4 sample certs included)
+- Status: 200
+
+**GET /api/certifications/:id**
+- Returns single certification by ID
+- Parameters: `id` (positive integer)
+- Response: Certification object with user details
+- Status: 200 | 400 (invalid ID) | 404 (not found)
+
+**POST /api/certifications**
+- Create new certification
+- Request body (JSON):
+  ```json
+  {
+    "userId": 1,
+    "title": "AWS Solutions Architect",
+    "provider": "Amazon Web Services",
+    "description": "Cloud architecture certification",
+    "difficultyLevel": "intermediate",
+    "status": "planned"
+  }
+  ```
+- Response: Created certification with ID
+- Status: 201 | 400 (validation error or invalid userId FK) | 404 (user not found)
+
+**PUT /api/certifications/:id**
+- Update certification by ID
+- Parameters: `id` (positive integer)
+- Request body: Fields to update (title, status, difficultyLevel, etc.)
+- Response: Updated certification object
+- Status: 200 | 400 (invalid ID or validation error) | 404 (not found)
+
+**DELETE /api/certifications/:id**
+- Delete certification by ID
+- Parameters: `id` (positive integer)
+- Response: Empty (204 No Content)
+- Status: 204 | 400 (invalid ID) | 404 (not found)
+
+### Learning Resources
+
+**GET /api/resources**
+- Returns all learning resources
+- Response: Array of resource objects (6 sample resources included)
+- Status: 200
+
+**GET /api/resources/:id**
+- Returns single resource by ID
+- Parameters: `id` (positive integer)
+- Response: Resource object with certification link
+- Status: 200 | 400 (invalid ID) | 404 (not found)
+
+**POST /api/resources**
+- Create new learning resource
+- Request body (JSON):
+  ```json
+  {
+    "certificationId": 1,
+    "type": "course",
+    "title": "AWS Architecture Basics",
+    "url": "https://example.com/course",
+    "estimatedHours": 40
+  }
+  ```
+- Response: Created resource with ID
+- Status: 201 | 400 (validation error or invalid certificationId FK) | 404 (cert not found)
+
+**PUT /api/resources/:id**
+- Update resource by ID
+- Parameters: `id` (positive integer)
+- Request body: Fields to update
+- Response: Updated resource object
+- Status: 200 | 400 (invalid ID or validation error) | 404 (not found)
+
+**DELETE /api/resources/:id**
+- Delete resource by ID
+- Parameters: `id` (positive integer)
+- Response: Empty (204 No Content)
+- Status: 204 | 400 (invalid ID) | 404 (not found)
+
+### Project Logs
+
+**GET /api/project-logs**
+- Returns all project logs
+- Response: Array of log objects (6 sample logs included)
+- Status: 200
+
+**GET /api/project-logs/:id**
+- Returns single log by ID
+- Parameters: `id` (positive integer)
+- Response: Log object with user/cert details
+- Status: 200 | 400 (invalid ID) | 404 (not found)
+
+**POST /api/project-logs**
+- Create new project log entry
+- Request body (JSON):
+  ```json
+  {
+    "userId": 1,
+    "certificationId": 1,
+    "logDate": "2024-01-15",
+    "description": "Completed module 2 on VPC networking",
+    "hoursSpent": 2,
+    "status": "in_progress"
+  }
+  ```
+- Response: Created log with ID
+- Status: 201 | 400 (validation error or invalid FK) | 404 (user or cert not found)
+
+**PUT /api/project-logs/:id**
+- Update log by ID
+- Parameters: `id` (positive integer)
+- Request body: Fields to update (description, status, hoursSpent, etc.)
+- Response: Updated log object
+- Status: 200 | 400 (invalid ID or validation error) | 404 (not found)
+
+**DELETE /api/project-logs/:id**
+- Delete log by ID
+- Parameters: `id` (positive integer)
+- Response: Empty (204 No Content)
+- Status: 204 | 400 (invalid ID) | 404 (not found)
+
+## Error Handling
+
+The API implements centralized error handling that maps errors to meaningful HTTP responses:
+
+**Validation Errors (400 Bad Request):**
+```json
+{
+  "error": "Validation error",
+  "details": ["Field 'email' is required", "Field 'role' must be one of: student, instructor, admin"]
+}
+```
+
+**Malformed JSON (400):**
+```json
+{
+  "error": "Invalid JSON in request body"
+}
+```
+
+**Foreign Key Constraint (400):**
+```json
+{
+  "error": "Foreign key constraint failed",
+  "details": ["userId does not exist"]
+}
+```
+
+**Not Found (404):**
+```json
+{
+  "error": "Resource not found"
+}
+```
+
+**Invalid ID Format (400):**
+```json
+{
+  "error": "Invalid id parameter"
+}
+```
+
+## Sample cURL Requests
+
+**Get all users:**
+```bash
+curl http://localhost:3000/api/users
+```
+
+**Get user by ID:**
+```bash
+curl http://localhost:3000/api/users/1
+```
+
+**Create new certification:**
+```bash
+curl -X POST http://localhost:3000/api/certifications \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": 1,
+    "title": "Google Cloud Professional",
+    "provider": "Google Cloud",
+    "description": "Advanced cloud architecture",
+    "difficultyLevel": "advanced",
+    "status": "planned"
+  }'
+```
+
+**Update user:**
+```bash
+curl -X PUT http://localhost:3000/api/users/1 \
+  -H "Content-Type: application/json" \
+  -d '{"primaryGoal": "Complete 3 cloud certs by year end"}'
+```
+
+**Delete resource:**
+```bash
+curl -X DELETE http://localhost:3000/api/resources/1
+```
+
+## Sample Data
+
+The seed script populates the database with:
+
+**Users:**
+- Alicia Brown (student) - Pursuing AWS Solutions Architect
+- Marcus Patel (student) - Moving into cybersecurity
+- Nina Lopez (instructor) - Coaching through tracks
+- Jordan Reed (admin) - Platform governance
+
+**Certifications:**
+- AWS Solutions Architect Associate (Alicia, in_progress)
+- CompTIA Security+ (Alicia, planned)
+- Azure Administrator (Marcus, in_progress)
+- Cisco CCNA (Marcus, paused)
+
+**Learning Resources:** 6 sample courses/exams/videos per certifications
+
+**Project Logs:** 6 sample study session logs tracking hours and progress
+
+## Development Notes
+
+- **Middleware Order:** Logging → Content-Type Validation → JSON Parsing → Routes → Error Handler
+- **ID Validation:** All `:id` parameters validated as positive integers; invalid formats return 400
+- **Database Transactions:** Uses Sequelize instance methods with error forwarding via Express middleware
+- **Test Isolation:** Jest tests use in-memory SQLite database (`:memory:`) to prevent test interference
+- **Environment:** Uses `DB_STORAGE` environment variable to switch between production and test databases
+
+## Future Enhancements
+
+- JWT authentication middleware
+- Role-based access control (RBAC)
+- Advanced filtering/pagination on list endpoints
+- File uploads for resource attachments
+- Email notifications for certification milestones
+- Analytics dashboard for admin users
