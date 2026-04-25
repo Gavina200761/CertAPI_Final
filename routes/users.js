@@ -2,11 +2,11 @@ const express = require("express");
 const bcrypt = require("bcrypt");
 const { User } = require("../database/models");
 const validateIdParam = require("../middleware/validateIdParam");
+const { requireRole, requireSelfOrRole } = require("../middleware/authorization");
 const {
   JWT_EXPIRES_IN,
   generateAuthToken,
   authenticateToken,
-  requireRole,
   revokeToken,
 } = require("../middleware/auth");
 
@@ -110,12 +110,8 @@ router.get("/validate-token", async (req, res) => {
 
 router.use("/:id", validateIdParam);
 
-router.get("/", async (req, res, next) => {
+router.get("/", requireRole("instructor", "admin"), async (req, res, next) => {
   try {
-    if (req.auth.role !== "admin") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
     const users = await User.findAll();
     return res.status(200).json(users.map((user) => sanitizeUser(user)));
   } catch (error) {
@@ -123,15 +119,9 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", requireSelfOrRole("id", "instructor", "admin"), async (req, res, next) => {
   try {
-    const requestedId = Number(req.params.id);
-
-    if (req.auth.role !== "admin" && Number(req.auth.sub) !== requestedId) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const user = await User.findByPk(requestedId);
+    const user = await User.findByPk(Number(req.params.id));
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -166,15 +156,9 @@ router.post("/", requireRole("admin"), async (req, res, next) => {
   }
 });
 
-router.put("/:id", async (req, res, next) => {
+router.put("/:id", requireSelfOrRole("id", "admin"), async (req, res, next) => {
   try {
-    const requestedId = Number(req.params.id);
-
-    if (req.auth.role !== "admin" && Number(req.auth.sub) !== requestedId) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const user = await User.findByPk(requestedId);
+    const user = await User.findByPk(Number(req.params.id));
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -206,15 +190,9 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
-router.delete("/:id", async (req, res, next) => {
+router.delete("/:id", requireSelfOrRole("id", "admin"), async (req, res, next) => {
   try {
-    const requestedId = Number(req.params.id);
-
-    if (req.auth.role !== "admin" && Number(req.auth.sub) !== requestedId) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const user = await User.findByPk(requestedId);
+    const user = await User.findByPk(Number(req.params.id));
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });

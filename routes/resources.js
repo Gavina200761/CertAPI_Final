@@ -2,24 +2,56 @@ const express = require("express");
 const { LearningResource, Certification } = require("../database/models");
 const validateIdParam = require("../middleware/validateIdParam");
 const { authenticateToken } = require("../middleware/auth");
+const {
+  authorizeRecordAccess,
+  authorizeBodyRelation,
+} = require("../middleware/authorization");
 
 const router = express.Router();
+
+function buildResourceQuery() {
+  return {
+    include: [{
+      model: Certification,
+      as: "certification",
+      attributes: ["id", "userId"],
+      required: true,
+    }],
+  };
+}
+
+const authorizeResourceRead = authorizeRecordAccess({
+  loadRecord: (req) => LearningResource.findByPk(req.params.id, buildResourceQuery()),
+  getOwnerId: (resource) => resource.certification.userId,
+  attachKey: "resource",
+  notFoundMessage: "Resource not found",
+  allowedRoles: ["instructor", "admin"],
+});
+
+const authorizeResourceWrite = authorizeRecordAccess({
+  loadRecord: (req) => LearningResource.findByPk(req.params.id, buildResourceQuery()),
+  getOwnerId: (resource) => resource.certification.userId,
+  attachKey: "resource",
+  notFoundMessage: "Resource not found",
+  allowedRoles: ["admin"],
+});
+
+const authorizeResourceCertificationTarget = authorizeBodyRelation({
+  field: "certificationId",
+  loadRecord: (certificationId) => Certification.findByPk(certificationId),
+  getOwnerId: (certification) => certification.userId,
+  notFoundMessage: "Certification not found",
+  allowedRoles: ["admin"],
+});
 
 router.use(authenticateToken);
 router.use("/:id", validateIdParam);
 
 router.get("/", async (req, res, next) => {
   try {
-    const query = {
-      include: [{
-        model: Certification,
-        as: "certification",
-        attributes: ["id", "userId"],
-        required: true,
-      }],
-    };
+    const query = buildResourceQuery();
 
-    if (req.auth.role !== "admin") {
+    if (!["instructor", "admin"].includes(req.auth.role)) {
       query.include[0].where = { userId: Number(req.auth.sub) };
     }
 
@@ -30,40 +62,16 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", authorizeResourceRead, async (req, res, next) => {
   try {
-    const resource = await LearningResource.findByPk(req.params.id, {
-      include: [{
-        model: Certification,
-        as: "certification",
-        attributes: ["id", "userId"],
-      }],
-    });
-
-    if (!resource) {
-      return res.status(404).json({ error: "Resource not found" });
-    }
-
-    if (req.auth.role !== "admin" && resource.certification.userId !== Number(req.auth.sub)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    return res.status(200).json(resource);
+    return res.status(200).json(req.resource);
   } catch (error) {
     return next(error);
   }
 });
 
-router.post("/", async (req, res, next) => {
+router.post("/", authorizeResourceCertificationTarget, async (req, res, next) => {
   try {
-    if (req.auth.role !== "admin") {
-      const certification = await Certification.findByPk(req.body.certificationId);
-
-      if (!certification || certification.userId !== Number(req.auth.sub)) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-    }
-
     const resource = await LearningResource.create(req.body);
     return res.status(201).json(resource);
   } catch (error) {
@@ -71,58 +79,18 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-router.put("/:id", async (req, res, next) => {
+router.put("/:id", authorizeResourceWrite, authorizeResourceCertificationTarget, async (req, res, next) => {
   try {
-    const resource = await LearningResource.findByPk(req.params.id, {
-      include: [{
-        model: Certification,
-        as: "certification",
-        attributes: ["id", "userId"],
-      }],
-    });
-
-    if (!resource) {
-      return res.status(404).json({ error: "Resource not found" });
-    }
-
-    if (req.auth.role !== "admin" && resource.certification.userId !== Number(req.auth.sub)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    if (req.auth.role !== "admin" && req.body.certificationId) {
-      const certification = await Certification.findByPk(req.body.certificationId);
-
-      if (!certification || certification.userId !== Number(req.auth.sub)) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-    }
-
-    await resource.update(req.body);
-    return res.status(200).json(resource);
+    await req.resource.update(req.body);
+    return res.status(200).json(req.resource);
   } catch (error) {
     return next(error);
   }
 });
 
-router.delete("/:id", async (req, res, next) => {
+router.delete("/:id", authorizeResourceWrite, async (req, res, next) => {
   try {
-    const resource = await LearningResource.findByPk(req.params.id, {
-      include: [{
-        model: Certification,
-        as: "certification",
-        attributes: ["id", "userId"],
-      }],
-    });
-
-    if (!resource) {
-      return res.status(404).json({ error: "Resource not found" });
-    }
-
-    if (req.auth.role !== "admin" && resource.certification.userId !== Number(req.auth.sub)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    await resource.destroy();
+    await req.resource.destroy();
     return res.status(204).send();
   } catch (error) {
     return next(error);

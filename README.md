@@ -144,6 +144,21 @@ Optional environment variables:
 - Revokes the current JWT token in server memory
 - Requires Bearer token
 
+## Authorization
+
+The API enforces role-based access control using the `role` field on the `users` table.
+
+- `student`: can manage only their own profile and their own certifications, resources, and project logs
+- `instructor`: can view all users and all certification tracking data, but cannot modify or delete other users' records
+- `admin`: has full access to all user and tracking endpoints, including cross-user management actions
+
+Ownership rules:
+
+- Non-admin certification writes are always limited to the authenticated user's own certifications
+- Non-admin resource writes must point to a certification owned by the authenticated user
+- Non-admin project log writes must point to the authenticated user's own certification data
+- User profile updates and deletes are limited to the record owner unless the caller is an admin
+
 ## API Endpoints
 
 All endpoints return JSON responses. The API uses standard HTTP status codes:
@@ -156,16 +171,17 @@ All endpoints return JSON responses. The API uses standard HTTP status codes:
 
 ### Users Resource
 
-All user CRUD endpoints require authentication. Non-admin users may only view/update/delete their own user record.
+All user CRUD endpoints require authentication.
 
 **GET /api/users**
 - Returns all users
-- Admin only
+- Instructor or admin only
 - Response: Array of user objects (4 sample users included)
 - Status: 200
 
 **GET /api/users/:id**
 - Returns single user by ID
+- Allowed for the record owner, instructors, and admins
 - Parameters: `id` (positive integer)
 - Response: User object with all fields
 - Status: 200 (success) | 400 (invalid ID) | 404 (not found)
@@ -188,6 +204,7 @@ All user CRUD endpoints require authentication. Non-admin users may only view/up
 
 **PUT /api/users/:id**
 - Update user by ID
+- Allowed for the record owner or an admin
 - Parameters: `id` (positive integer)
 - Request body: Any user fields to update
 - Response: Updated user object
@@ -195,11 +212,15 @@ All user CRUD endpoints require authentication. Non-admin users may only view/up
 
 **DELETE /api/users/:id**
 - Delete user by ID
+- Allowed for the record owner or an admin
 - Parameters: `id` (positive integer)
 - Response: Empty (204 No Content)
 - Status: 204 | 400 (invalid ID) | 404 (not found)
 
 ### Certifications Resource
+
+- `GET` collection/item: owner, instructor, or admin
+- `POST`/`PUT`/`DELETE`: owner or admin
 
 **GET /api/certifications**
 - Returns all certifications with user associations
@@ -243,6 +264,9 @@ All user CRUD endpoints require authentication. Non-admin users may only view/up
 
 ### Learning Resources
 
+- `GET` collection/item: owner, instructor, or admin
+- `POST`/`PUT`/`DELETE`: owner of the parent certification or admin
+
 **GET /api/resources**
 - Returns all learning resources
 - Response: Array of resource objects (6 sample resources included)
@@ -283,6 +307,9 @@ All user CRUD endpoints require authentication. Non-admin users may only view/up
 - Status: 204 | 400 (invalid ID) | 404 (not found)
 
 ### Project Logs
+
+- `GET` collection/item: owner, instructor, or admin
+- `POST`/`PUT`/`DELETE`: owner or admin
 
 **GET /api/project-logs**
 - Returns all project logs

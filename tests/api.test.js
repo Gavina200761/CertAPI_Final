@@ -1,9 +1,12 @@
 const request = require("supertest");
+const bcrypt = require("bcrypt");
 const app = require("../index");
-const { User, Certification, sequelize } = require("../database/models");
+const { User, Certification, ProjectLog, sequelize } = require("../database/models");
+
+const SALT_ROUNDS = 10;
 
 describe("API Auth + CRUD Operations", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     process.env.DB_STORAGE = ":memory://";
     await sequelize.sync({ force: true });
   });
@@ -31,6 +34,28 @@ describe("API Auth + CRUD Operations", () => {
       loginRes,
       userId: registerRes.body.id,
       token: loginRes.body.token,
+    };
+  }
+
+  async function createRoleUser(role, seed = Date.now()) {
+    const password = "StrongPass123!";
+    const user = await User.create({
+      name: `${role} user`,
+      email: `${role}-${seed}@example.com`,
+      passwordHash: await bcrypt.hash(password, SALT_ROUNDS),
+      role,
+      primaryGoal: `${role} goal`,
+    });
+
+    const loginRes = await request(app).post("/api/users/login").send({
+      email: user.email,
+      password,
+    });
+
+    return {
+      user,
+      token: loginRes.body.token,
+      loginRes,
     };
   }
 
@@ -81,6 +106,52 @@ describe("API Auth + CRUD Operations", () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("id", userId);
       expect(res.body).not.toHaveProperty("passwordHash");
+    });
+
+    it("should block a student from listing all users", async () => {
+      const { token } = await registerAndLogin(Date.now() + 10);
+
+      const res = await request(app)
+        .get("/api/users")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should allow an instructor to list users but not delete another user", async () => {
+      const { token: instructorToken } = await createRoleUser("instructor", Date.now() + 11);
+      const { user: studentUser } = await createRoleUser("student", Date.now() + 12);
+
+      const listRes = await request(app)
+        .get("/api/users")
+        .set("Authorization", `Bearer ${instructorToken}`);
+
+      expect(listRes.status).toBe(200);
+      expect(Array.isArray(listRes.body)).toBe(true);
+
+      const deleteRes = await request(app)
+        .delete(`/api/users/${studentUser.id}`)
+        .set("Authorization", `Bearer ${instructorToken}`);
+
+      expect(deleteRes.status).toBe(403);
+    });
+
+    it("should allow an admin to create another user with a privileged role", async () => {
+      const { token: adminToken } = await createRoleUser("admin", Date.now() + 13);
+
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "New Instructor",
+          email: `new-instructor-${Date.now()}@example.com`,
+          password: "StrongPass123!",
+          role: "instructor",
+          primaryGoal: "Teach students",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty("role", "instructor");
     });
   });
 
@@ -160,6 +231,102 @@ describe("API Auth + CRUD Operations", () => {
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty("userId", userId);
+    });
+  });
+
+  describe("Role-Based Authorization", () => {
+    it("should enforce certification ownership for students while allowing instructor read access", async () => {
+      const { token: ownerToken } = await registerAndLogin(Date.now() + 20);
+      const { token: otherStudentToken } = await registerAndLogin(Date.now() + 21);
+      const { token: instructorToken } = await createRoleUser("instructor", Date.now() + 22);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          title: "AWS Security",
+          provider: "Amazon",
+          difficultyLevel: "intermediate",
+          status: "planned",
+        });
+
+      const deniedRes = await request(app)
+        .get(`/api/certifications/${certRes.body.id}`)
+        .set("Authorization", `Bearer ${otherStudentToken}`);
+
+      expect(deniedRes.status).toBe(403);
+
+      const instructorRes = await request(app)
+        .get(`/api/certifications/${certRes.body.id}`)
+        .set("Authorization", `Bearer ${instructorToken}`);
+
+      expect(instructorRes.status).toBe(200);
+      expect(instructorRes.body).toHaveProperty("id", certRes.body.id);
+    });
+
+    it("should scope project log collections to owners unless the user is instructor or admin", async () => {
+      const { token: ownerToken, userId: ownerId } = await registerAndLogin(Date.now() + 23);
+      const { token: otherStudentToken } = await registerAndLogin(Date.now() + 24);
+      const { token: instructorToken } = await createRoleUser("instructor", Date.now() + 25);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          title: "Azure Admin",
+          provider: "Microsoft",
+          difficultyLevel: "beginner",
+          status: "in_progress",
+        });
+
+      await ProjectLog.create({
+        userId: ownerId,
+        certificationId: certRes.body.id,
+        metric: "study_minutes",
+        value: "90",
+        date: "2026-04-20",
+      });
+
+      const otherStudentLogsRes = await request(app)
+        .get("/api/project-logs")
+        .set("Authorization", `Bearer ${otherStudentToken}`);
+
+      expect(otherStudentLogsRes.status).toBe(200);
+      expect(otherStudentLogsRes.body).toHaveLength(0);
+
+      const instructorLogsRes = await request(app)
+        .get("/api/project-logs")
+        .set("Authorization", `Bearer ${instructorToken}`);
+
+      expect(instructorLogsRes.status).toBe(200);
+      expect(instructorLogsRes.body.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should allow admin access to another user’s certification management", async () => {
+      const { token: ownerToken } = await registerAndLogin(Date.now() + 26);
+      const { token: adminToken } = await createRoleUser("admin", Date.now() + 27);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          title: "CCNA",
+          provider: "Cisco",
+          difficultyLevel: "advanced",
+          status: "planned",
+        });
+
+      const deleteRes = await request(app)
+        .delete(`/api/certifications/${certRes.body.id}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(deleteRes.status).toBe(204);
+
+      const fetchRes = await request(app)
+        .get(`/api/certifications/${certRes.body.id}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(fetchRes.status).toBe(404);
     });
   });
 
