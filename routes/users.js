@@ -1,6 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
-const { User } = require("../database/models");
+const { Op } = require("sequelize");
+const { User, Certification } = require("../database/models");
 const validateIdParam = require("../middleware/validateIdParam");
 const { requireRole, requireSelfOrRole } = require("../middleware/authorization");
 const {
@@ -21,6 +22,13 @@ function sanitizeUser(userInstance) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function parsePagination(query) {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+  const offset = (page - 1) * limit;
+  return { page, limit, offset };
 }
 
 router.post("/register", async (req, res, next) => {
@@ -112,8 +120,31 @@ router.use("/:id", validateIdParam);
 
 router.get("/", requireRole("instructor", "admin"), async (req, res, next) => {
   try {
-    const users = await User.findAll();
-    return res.status(200).json(users.map((user) => sanitizeUser(user)));
+    const { page, limit, offset } = parsePagination(req.query);
+    const where = {};
+
+    if (req.query.role) {
+      where.role = req.query.role;
+    }
+    if (req.query.search) {
+      const term = `%${req.query.search}%`;
+      where[Op.or] = [
+        { name: { [Op.like]: term } },
+        { email: { [Op.like]: term } },
+      ];
+    }
+
+    const { count, rows } = await User.findAndCountAll({
+      where,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.status(200).json({
+      data: rows.map((u) => sanitizeUser(u)),
+      pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) },
+    });
   } catch (error) {
     return next(error);
   }
@@ -128,6 +159,34 @@ router.get("/:id", requireSelfOrRole("id", "instructor", "admin"), async (req, r
     }
 
     return res.status(200).json(sanitizeUser(user));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/:id/certifications", requireSelfOrRole("id", "instructor", "admin"), async (req, res, next) => {
+  try {
+    const { page, limit, offset } = parsePagination(req.query);
+    const where = { userId: Number(req.params.id) };
+
+    if (req.query.status) {
+      where.status = req.query.status;
+    }
+    if (req.query.difficultyLevel) {
+      where.difficultyLevel = req.query.difficultyLevel;
+    }
+
+    const { count, rows } = await Certification.findAndCountAll({
+      where,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.status(200).json({
+      data: rows,
+      pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) },
+    });
   } catch (error) {
     return next(error);
   }

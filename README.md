@@ -174,17 +174,25 @@ All endpoints return JSON responses. The API uses standard HTTP status codes:
 All user CRUD endpoints require authentication.
 
 **GET /api/users**
-- Returns all users
+- Returns paginated list of users
 - Instructor or admin only
-- Response: Array of user objects (4 sample users included)
-- Status: 200
+- Query params: `page`, `limit`, `role` (student|instructor|admin), `search` (name or email)
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
+- Status: 200 | 403 (insufficient role)
 
 **GET /api/users/:id**
 - Returns single user by ID
 - Allowed for the record owner, instructors, and admins
 - Parameters: `id` (positive integer)
-- Response: User object with all fields
-- Status: 200 (success) | 400 (invalid ID) | 404 (not found)
+- Response: User object (passwordHash excluded)
+- Status: 200 | 400 (invalid ID) | 403 (not own profile) | 404 (not found)
+
+**GET /api/users/:id/certifications**
+- Returns paginated certifications belonging to a specific user
+- Allowed for the record owner, instructors, and admins
+- Query params: `page`, `limit`, `status`, `difficultyLevel`
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
+- Status: 200 | 403 (not own data)
 
 **POST /api/users**
 - Create new user
@@ -223,15 +231,56 @@ All user CRUD endpoints require authentication.
 - `POST`/`PUT`/`DELETE`: owner or admin
 
 **GET /api/certifications**
-- Returns all certifications with user associations
-- Response: Array of certification objects (4 sample certs included)
+- Returns paginated certifications (scoped to owner for students)
+- Query params: `page`, `limit`, `status` (planned|in_progress|completed|paused), `difficultyLevel` (beginner|intermediate|advanced), `search` (title, provider, or description)
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
 - Status: 200
 
 **GET /api/certifications/:id**
 - Returns single certification by ID
 - Parameters: `id` (positive integer)
-- Response: Certification object with user details
-- Status: 200 | 400 (invalid ID) | 404 (not found)
+- Response: Certification object
+- Status: 200 | 400 (invalid ID) | 403 (not owner) | 404 (not found)
+
+**GET /api/certifications/:id/resources**
+- Returns paginated learning resources belonging to this certification
+- Allowed for the certification owner, instructors, and admins
+- Query params: `page`, `limit`, `type` (course|video|lab|practice_exam|book|article), `isCompleted` (true|false)
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
+- Status: 200 | 403 | 404
+
+**GET /api/certifications/:id/project-logs**
+- Returns paginated project logs linked to this certification
+- Allowed for the certification owner, instructors, and admins
+- Query params: `page`, `limit`, `metric`, `startDate` (YYYY-MM-DD), `endDate` (YYYY-MM-DD)
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
+- Status: 200 | 403 | 404
+
+**GET /api/certifications/:id/progress**
+- Returns a progress summary for this certification
+- Allowed for the certification owner, instructors, and admins
+- Response:
+  ```json
+  {
+    "certificationId": 1,
+    "title": "AWS SAA",
+    "status": "in_progress",
+    "difficultyLevel": "intermediate",
+    "resources": {
+      "total": 5,
+      "completed": 3,
+      "completionPercent": 60,
+      "totalEstimatedMinutes": 420,
+      "completedEstimatedMinutes": 240
+    },
+    "projectLogs": {
+      "total": 8,
+      "firstLogDate": "2026-01-10",
+      "lastLogDate": "2026-04-20"
+    }
+  }
+  ```
+- Status: 200 | 403 | 404
 
 **POST /api/certifications**
 - Create new certification
@@ -264,12 +313,13 @@ All user CRUD endpoints require authentication.
 
 ### Learning Resources
 
-- `GET` collection/item: owner, instructor, or admin
+- `GET` collection/item: owner (via parent certification), instructor, or admin
 - `POST`/`PUT`/`DELETE`: owner of the parent certification or admin
 
 **GET /api/resources**
-- Returns all learning resources
-- Response: Array of resource objects (6 sample resources included)
+- Returns paginated resources (scoped to caller's certifications for students)
+- Query params: `page`, `limit`, `type` (course|video|lab|practice_exam|book|article), `isCompleted` (true|false), `certificationId`, `search` (title)
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
 - Status: 200
 
 **GET /api/resources/:id**
@@ -304,7 +354,14 @@ All user CRUD endpoints require authentication.
 - Delete resource by ID
 - Parameters: `id` (positive integer)
 - Response: Empty (204 No Content)
-- Status: 204 | 400 (invalid ID) | 404 (not found)
+- Status: 204 | 400 (invalid ID) | 403 (not owner) | 404 (not found)
+
+**PATCH /api/resources/:id/toggle-complete**
+- Toggles the `isCompleted` boolean on a resource
+- Allowed for the resource owner or admin
+- Parameters: `id` (positive integer)
+- Response: Updated resource object
+- Status: 200 | 403 (not owner) | 404 (not found)
 
 ### Project Logs
 
@@ -312,8 +369,9 @@ All user CRUD endpoints require authentication.
 - `POST`/`PUT`/`DELETE`: owner or admin
 
 **GET /api/project-logs**
-- Returns all project logs
-- Response: Array of log objects (6 sample logs included)
+- Returns paginated project logs (scoped to owner for students)
+- Query params: `page`, `limit`, `certificationId`, `metric`, `startDate` (YYYY-MM-DD), `endDate` (YYYY-MM-DD)
+- Response: `{ data: [...], pagination: { page, limit, total, totalPages } }`
 - Status: 200
 
 **GET /api/project-logs/:id**
@@ -460,9 +518,7 @@ The seed script populates the database with:
 
 ## Future Enhancements
 
-- JWT authentication middleware
-- Role-based access control (RBAC)
-- Advanced filtering/pagination on list endpoints
 - File uploads for resource attachments
 - Email notifications for certification milestones
 - Analytics dashboard for admin users
+- Sorting options on list endpoints (`?sort=title&order=asc`)

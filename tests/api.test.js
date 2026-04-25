@@ -127,7 +127,7 @@ describe("API Auth + CRUD Operations", () => {
         .set("Authorization", `Bearer ${instructorToken}`);
 
       expect(listRes.status).toBe(200);
-      expect(Array.isArray(listRes.body)).toBe(true);
+      expect(Array.isArray(listRes.body.data)).toBe(true);
 
       const deleteRes = await request(app)
         .delete(`/api/users/${studentUser.id}`)
@@ -292,14 +292,14 @@ describe("API Auth + CRUD Operations", () => {
         .set("Authorization", `Bearer ${otherStudentToken}`);
 
       expect(otherStudentLogsRes.status).toBe(200);
-      expect(otherStudentLogsRes.body).toHaveLength(0);
+      expect(otherStudentLogsRes.body.data).toHaveLength(0);
 
       const instructorLogsRes = await request(app)
         .get("/api/project-logs")
         .set("Authorization", `Bearer ${instructorToken}`);
 
       expect(instructorLogsRes.status).toBe(200);
-      expect(instructorLogsRes.body.length).toBeGreaterThanOrEqual(1);
+      expect(instructorLogsRes.body.data.length).toBeGreaterThanOrEqual(1);
     });
 
     it("should allow admin access to another user’s certification management", async () => {
@@ -327,6 +327,307 @@ describe("API Auth + CRUD Operations", () => {
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(fetchRes.status).toBe(404);
+    });
+  });
+
+  describe("Pagination & Filtering", () => {
+    it("should return certifications with pagination envelope", async () => {
+      const { token } = await registerAndLogin(Date.now() + 30);
+
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "AWS SAA", provider: "Amazon", difficultyLevel: "intermediate", status: "planned" });
+
+      const res = await request(app)
+        .get("/api/certifications?page=1&limit=5")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("data");
+      expect(res.body).toHaveProperty("pagination");
+      expect(res.body.pagination).toHaveProperty("page", 1);
+      expect(res.body.pagination).toHaveProperty("limit", 5);
+      expect(res.body.pagination).toHaveProperty("total");
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it("should filter certifications by status", async () => {
+      const { token } = await registerAndLogin(Date.now() + 31);
+
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "AWS", provider: "Amazon", difficultyLevel: "beginner", status: "planned" });
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Azure", provider: "Microsoft", difficultyLevel: "beginner", status: "completed" });
+
+      const res = await request(app)
+        .get("/api/certifications?status=planned")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((c) => c.status === "planned")).toBe(true);
+    });
+
+    it("should search certifications by title or provider", async () => {
+      const { token } = await registerAndLogin(Date.now() + 32);
+
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "AWS Solutions Architect", provider: "Amazon", difficultyLevel: "intermediate", status: "planned" });
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Python Basics", provider: "Udemy", difficultyLevel: "beginner", status: "planned" });
+
+      const res = await request(app)
+        .get("/api/certifications?search=AWS")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.every((c) => c.title.includes("AWS") || c.provider.includes("AWS"))).toBe(true);
+    });
+
+    it("should filter project logs by certificationId", async () => {
+      const { token, userId } = await registerAndLogin(Date.now() + 33);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "GCP", provider: "Google", difficultyLevel: "advanced", status: "in_progress" });
+
+      await ProjectLog.create({
+        userId,
+        certificationId: certRes.body.id,
+        metric: "study_hours",
+        value: "2",
+        date: "2026-04-15",
+      });
+
+      const res = await request(app)
+        .get(`/api/project-logs?certificationId=${certRes.body.id}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.every((l) => l.certificationId === certRes.body.id)).toBe(true);
+    });
+
+    it("should filter resources by type via GET /api/resources", async () => {
+      const { token } = await registerAndLogin(Date.now() + 34);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "CompTIA", provider: "CompTIA", difficultyLevel: "beginner", status: "planned" });
+
+      await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ certificationId: certRes.body.id, type: "course", title: "Intro Course", url: "https://example.com/course", estimatedTimeMinutes: 60 });
+      await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ certificationId: certRes.body.id, type: "video", title: "Video Lecture", url: "https://example.com/video", estimatedTimeMinutes: 30 });
+
+      const res = await request(app)
+        .get("/api/resources?type=course")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("data");
+      expect(res.body.data.every((r) => r.type === "course")).toBe(true);
+    });
+  });
+
+  describe("Relationship Endpoints", () => {
+    it("should list resources for a certification via GET /api/certifications/:id/resources", async () => {
+      const { token } = await registerAndLogin(Date.now() + 40);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Kubernetes", provider: "CNCF", difficultyLevel: "advanced", status: "in_progress" });
+
+      await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ certificationId: certRes.body.id, type: "lab", title: "K8s Lab", url: "https://example.com/lab", estimatedTimeMinutes: 90 });
+
+      const res = await request(app)
+        .get(`/api/certifications/${certRes.body.id}/resources`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("data");
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.data[0]).toHaveProperty("certificationId", certRes.body.id);
+    });
+
+    it("should list project logs for a certification via GET /api/certifications/:id/project-logs", async () => {
+      const { token, userId } = await registerAndLogin(Date.now() + 41);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Docker", provider: "Docker Inc", difficultyLevel: "intermediate", status: "in_progress" });
+
+      await ProjectLog.create({
+        userId,
+        certificationId: certRes.body.id,
+        metric: "flashcards",
+        value: "50",
+        date: "2026-04-10",
+      });
+
+      const res = await request(app)
+        .get(`/api/certifications/${certRes.body.id}/project-logs`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("data");
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should return progress stats via GET /api/certifications/:id/progress", async () => {
+      const { token } = await registerAndLogin(Date.now() + 42);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Terraform", provider: "HashiCorp", difficultyLevel: "intermediate", status: "in_progress" });
+
+      const r1 = await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ certificationId: certRes.body.id, type: "course", title: "Course A", url: "https://example.com/a", estimatedTimeMinutes: 120 });
+      const r2 = await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ certificationId: certRes.body.id, type: "video", title: "Video B", url: "https://example.com/b", estimatedTimeMinutes: 60 });
+
+      await request(app)
+        .patch(`/api/resources/${r1.body.id}/toggle-complete`)
+        .set("Authorization", `Bearer ${token}`);
+
+      const res = await request(app)
+        .get(`/api/certifications/${certRes.body.id}/progress`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("certificationId", certRes.body.id);
+      expect(res.body.resources.total).toBe(2);
+      expect(res.body.resources.completed).toBe(1);
+      expect(res.body.resources.completionPercent).toBe(50);
+      expect(res.body.resources.totalEstimatedMinutes).toBe(180);
+    });
+
+    it("should list a user's certifications via GET /api/users/:id/certifications", async () => {
+      const { token, userId } = await registerAndLogin(Date.now() + 43);
+
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Linux+", provider: "CompTIA", difficultyLevel: "beginner", status: "planned" });
+
+      const res = await request(app)
+        .get(`/api/users/${userId}/certifications`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("data");
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.every((c) => c.userId === userId)).toBe(true);
+    });
+
+    it("should block a student from viewing another user's certifications", async () => {
+      const { userId: owner } = await registerAndLogin(Date.now() + 44);
+      const { token: otherToken } = await registerAndLogin(Date.now() + 45);
+
+      const res = await request(app)
+        .get(`/api/users/${owner}/certifications`)
+        .set("Authorization", `Bearer ${otherToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("Specialized Endpoints", () => {
+    it("should toggle resource completion via PATCH /api/resources/:id/toggle-complete", async () => {
+      const { token } = await registerAndLogin(Date.now() + 50);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "Security+", provider: "CompTIA", difficultyLevel: "intermediate", status: "in_progress" });
+
+      const resourceRes = await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ certificationId: certRes.body.id, type: "practice_exam", title: "Practice Exam 1", url: "https://example.com/exam", estimatedTimeMinutes: 90 });
+
+      expect(resourceRes.body.isCompleted).toBe(false);
+
+      const toggleRes = await request(app)
+        .patch(`/api/resources/${resourceRes.body.id}/toggle-complete`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(toggleRes.status).toBe(200);
+      expect(toggleRes.body.isCompleted).toBe(true);
+
+      const toggleBackRes = await request(app)
+        .patch(`/api/resources/${resourceRes.body.id}/toggle-complete`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(toggleBackRes.status).toBe(200);
+      expect(toggleBackRes.body.isCompleted).toBe(false);
+    });
+
+    it("should block a student from toggling another user's resource", async () => {
+      const { token: ownerToken } = await registerAndLogin(Date.now() + 51);
+      const { token: otherToken } = await registerAndLogin(Date.now() + 52);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ title: "CISSP", provider: "ISC2", difficultyLevel: "advanced", status: "planned" });
+
+      const resourceRes = await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ certificationId: certRes.body.id, type: "book", title: "CISSP Book", url: "https://example.com/book", estimatedTimeMinutes: 480 });
+
+      const res = await request(app)
+        .patch(`/api/resources/${resourceRes.body.id}/toggle-complete`)
+        .set("Authorization", `Bearer ${otherToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should filter /api/certifications/:id/project-logs by date range", async () => {
+      const { token, userId } = await registerAndLogin(Date.now() + 53);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ title: "CCNA", provider: "Cisco", difficultyLevel: "intermediate", status: "in_progress" });
+
+      await ProjectLog.create({ userId, certificationId: certRes.body.id, metric: "videos", value: "3", date: "2026-01-10" });
+      await ProjectLog.create({ userId, certificationId: certRes.body.id, metric: "videos", value: "5", date: "2026-03-15" });
+      await ProjectLog.create({ userId, certificationId: certRes.body.id, metric: "videos", value: "2", date: "2026-04-20" });
+
+      const res = await request(app)
+        .get(`/api/certifications/${certRes.body.id}/project-logs?startDate=2026-03-01&endDate=2026-03-31`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].date).toBe("2026-03-15");
     });
   });
 
