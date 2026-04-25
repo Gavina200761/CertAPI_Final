@@ -112,6 +112,38 @@ Tests use an isolated in-memory SQLite database to ensure clean test runs withou
 - **Fields:** ID, userId (FK), certificationId (FK), logDate, description, hoursSpent, status, createdAt, updatedAt
 - **Relationships:** Belongs-to User and Certification
 
+## Authentication
+
+This API now uses JWT Bearer token authentication.
+
+- Public endpoints: `POST /api/users/register`, `POST /api/users/login`
+- Protected endpoints: all other `/api/users`, `/api/certifications`, `/api/resources`, and `/api/project-logs` routes
+- Send tokens as: `Authorization: Bearer <token>`
+
+Optional environment variables:
+
+- `JWT_SECRET` (recommended in production)
+- `JWT_EXPIRES_IN` (default: `1h`)
+
+### Auth Endpoints
+
+**POST /api/users/register**
+- Registers a new user
+- Required fields: `name`, `email`, `password`
+- Role is set to `student` by default
+
+**POST /api/users/login**
+- Authenticates a user and returns a JWT token
+- Required fields: `email`, `password`
+
+**GET /api/users/validate-token**
+- Validates the provided token and returns the authenticated user profile
+- Requires Bearer token
+
+**POST /api/users/logout**
+- Revokes the current JWT token in server memory
+- Requires Bearer token
+
 ## API Endpoints
 
 All endpoints return JSON responses. The API uses standard HTTP status codes:
@@ -124,8 +156,11 @@ All endpoints return JSON responses. The API uses standard HTTP status codes:
 
 ### Users Resource
 
+All user CRUD endpoints require authentication. Non-admin users may only view/update/delete their own user record.
+
 **GET /api/users**
 - Returns all users
+- Admin only
 - Response: Array of user objects (4 sample users included)
 - Status: 200
 
@@ -137,12 +172,13 @@ All endpoints return JSON responses. The API uses standard HTTP status codes:
 
 **POST /api/users**
 - Create new user
+- Admin only
 - Request body (JSON):
   ```json
   {
     "name": "John Doe",
     "email": "john@example.com",
-    "passwordHash": "hashed_password_here",
+    "password": "plaintext_password_here",
     "role": "student",
     "primaryGoal": "Optional goal description"
   }
