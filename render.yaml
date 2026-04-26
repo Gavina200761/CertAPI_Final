@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: certapi
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run db:setup
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        sync: false
+      - key: DATABASE_URL
+        database:
+          name: certapi_db
+          engine: postgres
+          version: "15"

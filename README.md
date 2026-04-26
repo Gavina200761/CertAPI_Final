@@ -516,6 +516,140 @@ The seed script populates the database with:
 - **Test Isolation:** Jest tests use in-memory SQLite database (`:memory:`) to prevent test interference
 - **Environment:** Uses `DB_STORAGE` environment variable to switch between production and test databases
 
+## Deployment to Render
+
+This application is configured for seamless deployment to Render with persistent PostgreSQL database support.
+
+### Prerequisites
+
+1. **GitHub Repository:** Your code must be pushed to GitHub
+2. **Render Account:** Create a free account at https://render.com
+3. **Environment Variables:** Prepare your production secrets
+
+### Step 1: Configure Environment Variables
+
+Create a `.env` file locally (never commit this to GitHub) by copying `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Update the following variables:
+
+- **JWT_SECRET:** Generate a strong random string for JWT signing
+  ```bash
+  # Example using openssl:
+  openssl rand -base64 32
+  ```
+- **NODE_ENV:** Set to `production`
+- **DATABASE_URL:** Will be automatically set by Render when using managed PostgreSQL
+
+### Step 2: Deploy to Render
+
+1. **Connect GitHub Repository:**
+   - Go to https://dashboard.render.com and sign in
+   - Click "New Web Service"
+   - Select "Build and deploy from a Git repository"
+   - Connect your GitHub account and select the CertAPI_Final repository
+
+2. **Configure the Service:**
+   - **Name:** `certapi` (or your preferred name)
+   - **Region:** Select closest to your users
+   - **Branch:** `main`
+   - **Build Command:** `npm install && npm run db:setup`
+   - **Start Command:** `npm start`
+   - **Plan:** Free tier available
+
+3. **Add Environment Variables:**
+   - Click "Advanced" → "Add Secret File"
+   - Add the following environment variables:
+     - `NODE_ENV` = `production`
+     - `JWT_SECRET` = your generated secret (from Step 1)
+     - `DATABASE_URL` = (Render will provide this automatically with PostgreSQL database)
+
+4. **Create PostgreSQL Database:**
+   - In Render dashboard, click "New" → "PostgreSQL"
+   - **Name:** `certapi-db`
+   - **Database Name:** `certapi`
+   - **Region:** Same as your web service
+   - **Plan:** Free tier available
+   - Note the connection string for DATABASE_URL
+
+5. **Connect Database to Service:**
+   - Go back to your web service
+   - Click "Environment"
+   - Add `DATABASE_URL` with the PostgreSQL connection string from your database
+
+### Step 3: Verify Deployment
+
+Once deployed, test your API:
+
+```bash
+# Test the health endpoint
+curl https://your-service-name.onrender.com/
+
+# Register a new user
+curl -X POST https://your-service-name.onrender.com/api/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test User",
+    "email": "test@example.com",
+    "password": "securepassword"
+  }'
+
+# Login to get a token
+curl -X POST https://your-service-name.onrender.com/api/users/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "securepassword"
+  }'
+
+# Use the token to access protected endpoints
+curl -X GET https://your-service-name.onrender.com/api/users \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### Step 4: Database Initialization
+
+The `render.yaml` configuration includes the build command `npm run db:setup`, which automatically initializes the PostgreSQL schema on first deployment. To seed sample data:
+
+```bash
+# SSH into your Render service or add a seed step:
+# Optionally add to package.json:
+# "db:seed": "node database/seed.js"
+# Then run manually if needed
+```
+
+### Important Notes
+
+⚠️ **Database Persistence:** Unlike SQLite, PostgreSQL databases on Render persist data across application restarts and redeployments. Your certification data will remain safe.
+
+⚠️ **Security:** 
+- Never commit `.env` files to Git
+- Always use environment variables for secrets
+- Regenerate `JWT_SECRET` periodically in production
+- Use HTTPS (Render provides this by default)
+
+### Troubleshooting
+
+**"database is locked" errors:**
+- SQLite on Render's ephemeral filesystem causes data loss
+- Solution: Confirmed - Using PostgreSQL (configured)
+
+**"Cannot find module 'pg'":**
+- Ensure `npm install` runs during build
+- Check `render.yaml` buildCommand includes `npm install`
+
+**Connection timeout on DATABASE_URL:**
+- Verify the PostgreSQL database is in the same region
+- Confirm DATABASE_URL environment variable is set
+- Check Render dashboard for any service status issues
+
+**JWT authentication fails:**
+- Ensure `JWT_SECRET` environment variable is set in production
+- Tokens generated locally won't work in production (different secret)
+
 ## Future Enhancements
 
 - File uploads for resource attachments
