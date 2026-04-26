@@ -89,9 +89,76 @@ describe("API Auth + CRUD Operations", () => {
       expect(validateAfterLogoutRes.status).toBe(401);
     });
 
+    it("should reject duplicate registration emails", async () => {
+      const payload = {
+        name: "Duplicate User",
+        email: `dup-${Date.now()}@example.com`,
+        password: "StrongPass123!",
+      };
+
+      const firstRes = await request(app).post("/api/users/register").send(payload);
+      const secondRes = await request(app).post("/api/users/register").send(payload);
+
+      expect(firstRes.status).toBe(201);
+      expect(secondRes.status).toBe(400);
+      expect(secondRes.body).toHaveProperty("error");
+    });
+
+    it("should reject registration with short password", async () => {
+      const res = await request(app).post("/api/users/register").send({
+        name: "Short Pass",
+        email: `short-${Date.now()}@example.com`,
+        password: "short",
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error", "Password must be at least 8 characters");
+    });
+
+    it("should reject login with invalid credentials", async () => {
+      const seed = Date.now() + 200;
+      await registerAndLogin(seed);
+
+      const res = await request(app).post("/api/users/login").send({
+        email: `test-${seed}@example.com`,
+        password: "WrongPass123!",
+      });
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty("error", "Invalid credentials");
+    });
+
+    it("should reject login when required fields are missing", async () => {
+      const res = await request(app).post("/api/users/login").send({ email: "missing@example.com" });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error", "email and password are required");
+    });
+
     it("should reject protected route without token", async () => {
       const res = await request(app).get("/api/certifications");
       expect(res.status).toBe(401);
+    });
+
+    it("should reject protected route with malformed token", async () => {
+      const res = await request(app)
+        .get("/api/certifications")
+        .set("Authorization", "Bearer malformed.token.value");
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty("error");
+    });
+
+    it("should invalidate token when token user no longer exists", async () => {
+      const { token, userId } = await registerAndLogin(Date.now() + 201);
+      await User.destroy({ where: { id: userId } });
+
+      const res = await request(app)
+        .get("/api/users/validate-token")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+      expect(res.body).toHaveProperty("error", "Token user no longer exists");
     });
   });
 
@@ -328,6 +395,51 @@ describe("API Auth + CRUD Operations", () => {
 
       expect(fetchRes.status).toBe(404);
     });
+
+    it("should allow an instructor to view another user's certifications collection", async () => {
+      const { token: ownerToken, userId: ownerId } = await registerAndLogin(Date.now() + 28);
+      const { token: instructorToken } = await createRoleUser("instructor", Date.now() + 29);
+
+      await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          title: "Network+",
+          provider: "CompTIA",
+          difficultyLevel: "beginner",
+          status: "planned",
+        });
+
+      const res = await request(app)
+        .get(`/api/users/${ownerId}/certifications`)
+        .set("Authorization", `Bearer ${instructorToken}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should allow admin to view progress for another user's certification", async () => {
+      const { token: ownerToken } = await registerAndLogin(Date.now() + 62);
+      const { token: adminToken } = await createRoleUser("admin", Date.now() + 63);
+
+      const certRes = await request(app)
+        .post("/api/certifications")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({
+          title: "AZ-104",
+          provider: "Microsoft",
+          difficultyLevel: "intermediate",
+          status: "in_progress",
+        });
+
+      const progressRes = await request(app)
+        .get(`/api/certifications/${certRes.body.id}/progress`)
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(progressRes.status).toBe(200);
+      expect(progressRes.body).toHaveProperty("certificationId", certRes.body.id);
+    });
   });
 
   describe("Pagination & Filtering", () => {
@@ -442,6 +554,17 @@ describe("API Auth + CRUD Operations", () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("data");
       expect(res.body.data.every((r) => r.type === "course")).toBe(true);
+    });
+
+    it("should clamp users list limit to 100 when a larger value is requested", async () => {
+      const { token: instructorToken } = await createRoleUser("instructor", Date.now() + 64);
+
+      const res = await request(app)
+        .get("/api/users?limit=1000&page=1")
+        .set("Authorization", `Bearer ${instructorToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination).toHaveProperty("limit", 100);
     });
   });
 
@@ -651,6 +774,35 @@ describe("API Auth + CRUD Operations", () => {
         .set("Authorization", `Bearer ${token}`);
 
       expect([403, 404]).toContain(res.status);
+    });
+
+    it("should return 400 for invalid nested certification id route", async () => {
+      const { token } = await registerAndLogin(Date.now() + 65);
+
+      const res = await request(app)
+        .get("/api/certifications/abc/resources")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error", "Invalid id parameter");
+    });
+
+    it("should return 404 when creating a resource for a non-existent certification", async () => {
+      const { token } = await registerAndLogin(Date.now() + 66);
+
+      const res = await request(app)
+        .post("/api/resources")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          certificationId: 999999,
+          type: "course",
+          title: "Ghost Cert Resource",
+          url: "https://example.com/ghost",
+          estimatedTimeMinutes: 30,
+        });
+
+      expect(res.status).toBe(404);
+      expect(res.body).toHaveProperty("error", "Certification not found");
     });
   });
 });
